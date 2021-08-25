@@ -1,0 +1,225 @@
+---
+
+title: "ventes des glaces"
+author: "Manel maaroufi, Miri Ahmed Mourad , Farjallh Mondher"
+class: "BA2"
+date: "26/05/2021"
+
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+  
+---
+```{r}
+library(ggfortify)          
+library(ggplot2)
+library(forcats)
+library(zoo)
+library(tseries)
+library(TSA)
+library(e1071)
+library(forecast)
+```
+
+
+#QUESTION 1:
+```{r}
+exemple =read.table(file = file.choose(),header = TRUE, sep = ",",dec = ".")
+View(exemple)
+```
+
+
+Type de données :
+```{r}
+str(exemple)
+```
+
+Transformation de la variable 'date',en class Date :
+```{r}
+attach(exemple)
+date=as.Date(x=DATE,format ="%Y-%m-%d")
+class(date)
+```
+
+Définition de  la variable « VENTES » comme une série temporelle mensuelle
+```{r}
+
+attach(exemple) 
+Serie = ts(exemple$VENTES, start = c(1972,1), frequency = 12)
+str(Serie)
+```
+
+
+Visualisation de la  série temporelle :'serie'
+```{r}
+autoplot(Serie)
+```
+
+
+Decomposition de 'serie':
+la série admet une composante :tendance (le panel 'trend' ) , et une composante saisonnière (le panel 'seasonal').
+on conclut que la série 'serie' était non-stationnière
+
+```{r}
+x = decompose(Serie)
+autoplot(x)
+```
+
+
+#Verfication de la satationnarite :par 2 test :
+
+#test1 :le Augmented Dickey-Fuller test
+
+sous H0 : la série n'est pas stationnaire contre H1 : Série stationnaire
+p-value = 0.6307>0.05 , ce qui implique un nom rejet de h0 (la serie n'est pas stationnaire)
+
+```{r}
+adf.test(Serie)
+
+```
+
+#test2:# le KPSS test
+sous H0 : la série est stationnaire contre , H1 n'est pas Série stationnaire
+p-value = 0.01<0.05.d'ou  la Série n'est pas stationnaire.
+
+
+```{r}
+kpss.test(Serie)
+
+```
+
+#conclusion:
+les deux test laisse supposer que la non-stationnarité est due à la présence d'une tendance dans la série.
+
+#Problématique:
+si apres l'élimination de la tendance et saisonnalité,la série devient elle stationnaire ou non ?
+
+
+#QUESTION 2:
+pour avoir un bon modèle:
+1-on doit eliminer l'effet saisonnalité et tendance de 'serie'(les estimer avant)
+2-vérifier que la partie résidu existante dans la série, s'agit d'un bruit blanc
+
+#Estimation de la saisonnalité ,par la methode sinus-cosinus
+on a testé 4 harminic ,et On a choisit har3:
+har3:le modèle à R carré le plus grand,et qui exprime les mêmes variables significatives.
+
+
+```{r}
+t = time(Serie)
+model1 = lm(Serie~ sin(2*pi*t/12) + cos((2*pi*t/12)))
+summary(model1)
+
+
+har3 = harmonic(Serie, 3)
+model3 = lm(Serie~ har3)
+summary(model3)
+#Adjusted R-squared:  0.4219
+
+
+#la nouvelle saisonlité
+st = model3$fitted.values
+st = ts(st, frequency = 12, start =c(1972,1) )
+autoplot(Serie)
+```
+
+Estimation de la tendance
+```{r}
+residu = Serie - st
+plot(residu)
+```
+
+#Un modèle avec tendance et saisonnalité
+```{r}
+model_glob = lm(Serie ~ t + har2)
+summary(model_glob)
+```
+
+#Le modèle fianl
+```{r}
+resid = Serie - fitted(model_glob)
+```
+
+
+#QUESTION3 :les 4 hypothèses d’un bon ajustement du modèle final.
+
+#1=test de normalité : test de Shapiro Wilk:
+
+H0 : La série est de distribution normale.
+Sous H1 : La série n'est pas normalement distribuée
+
+p-value = 1.065e-07 <0,05 ,alors les résidus ne sont pas normalement distribués au seuil 5%
+```{r}
+shapiro.test(resid)
+
+```
+
+#2.test de moyenne
+
+moy=-2.014786e-15 < 0
+```{r}
+mean(residu)
+```
+
+
+#3.test de variance 
+
+var=346.5638 != constante
+```{r}
+#om peut egalement utiliser le test d'ANOVA
+var(resid)
+```
+
+#4=tester la non-autocorrélation
+
+4.1.test de Box-Ljung:
+H0 : pas d'autocorrélation . Sous H1 : la model manque d'ajustement
+
+p-value < 2.2e-16. donc donc on peut modeliser encore plus la partie xt pour la rendre unbruit balnc)
+
+```{r}
+Box.test(residu, type = "Ljung")
+```
+
+4.2.test de Durbin-Watson
+Sous H0 : pas d'autocorrélation. Sous H1 : il y a une autocorrélation
+
+```{r}
+ 
+?dwtest
+library(lmtest)
+dwtest(residu) 
+```
+
+#Conclusion :les hypothèses du bon ajustement du modèle ne sont pas vérifiées, à cause de la présence d'une autocorrélation des résidus.
+
+
+                                   ############################################
+                                   
+
+TEST:l'autocorrélation des résidus/il y'a t il un effet d'un bruit autre que banc (aléatoire) ?
+
+le pacf est significatif alors:
+1.Xt dépend de ses valeurs retartdés Xt-1, Xt-2, ..+coeff (ordre P)
+2.la moyenne mobile MA ,a un empleur significatif dans le modèle  (ordre Q)
+
+```{r}
+pacf(residu, main = "PACF of Residual series")
+
+```
+
+
+#QUESTION4:les  prévisions pour un horizon de 12 mois en se basant sur le modèle validé.
+
+```{r}
+auto = auto.arima(residu)#choix du modèle
+auto
+
+ARMA3 <- arima(residu, order = c(2, 0, 4))#fixation des paramètres,en négligeant l'effet saisonnière
+ARMA3
+
+prev = forecast(fitted(ARMA3), h = 12)
+plot(prev)
+```
+
